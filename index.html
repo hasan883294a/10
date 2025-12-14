@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <title>خلاصه‌سازی اکسل بر اساس کد تنوع</title>
+  <title>خلاصه‌سازی اکسل بر اساس کد تنوع (چند شیت)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <style>
@@ -62,19 +62,38 @@
   </style>
 </head>
 <body>
-  <h1>خلاصه‌سازی اکسل بر اساس کد تنوع</h1>
+  <h1>خلاصه‌سازی اکسل بر اساس کد تنوع (فروش خالص + مجموع مبالغ)</h1>
 
   <div class="box">
     <p>
-      این ابزار یک فایل اکسل ورودی می‌گیرد، سطرها را بر اساس ستون
-      <strong>کد تنوع</strong> گروه‌بندی می‌کند و برای هر کد:
+      این ابزار همه‌ی شیت‌های فایل اکسل را می‌خواند، ولی برای محاسبه
+      <strong>تعداد خالص فروش</strong> فقط از شیت‌های زیر استفاده می‌کند:
     </p>
     <ul>
-      <li>تعداد ردیف‌ها</li>
-      <li>جمع مبلغ نهایی بستانکار (ریال)</li>
-      <li>میانگین مبلغ نهایی بستانکار (ریال)</li>
+      <li>فروش</li>
+      <li>فروش اعتباری</li>
+      <li>فروش کالای آسیب دیده</li>
+      <li>برگشت از فروش</li>
+      <li>برگشت از فروش اعتباری</li>
     </ul>
-    را محاسبه کرده و اکسل خروجی می‌سازد.
+    و برای هر «کد تنوع» مقادیر زیر را می‌سازد:
+    <ul>
+      <li>تعداد در هر یک از ۵ شیت فوق</li>
+      <li>تعداد خالص فروش = مجموع فروش‌ها − مجموع برگشت‌ها</li>
+      <li>جمع بستانکار (ریال) از همه‌ی شیت‌ها</li>
+      <li>جمع بدهکار (ریال) از همه‌ی شیت‌ها</li>
+      <li>درآمد (ریال) = بستانکار − بدهکار</li>
+    </ul>
+    در هر شیتِ قابل‌محاسبه، باید ستون‌های زیر وجود داشته باشد:
+    <ul>
+      <li>«کد تنوع»</li>
+      <li>یکی از این‌ها برای بستانکار:
+        «مبلغ نهایی بستانکار (﷼)» یا «بستانکار (﷼)»
+      </li>
+      <li>یکی از این‌ها برای بدهکار:
+        «مبلغ نهایی بدهکار (﷼)» یا «بدهکار (﷼)»
+      </li>
+    </ul>
   </div>
 
   <div class="box">
@@ -86,13 +105,13 @@
     <div id="status"></div>
   </div>
 
-  <!-- کتابخانه SheetJS برای کار با اکسل -->
+  <!-- SheetJS برای کار با اکسل -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <!-- کد اپلیکیشن -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      console.log('App ready');
+      console.log('App ready (multi-sheet version)');
 
       var fileInput  = document.getElementById('file-input');
       var processBtn = document.getElementById('process-btn');
@@ -100,10 +119,31 @@
 
       var selectedFile = null;
 
-      // انتخاب فایل
+      // --- تنظیم نام شیت‌هایی که برای تعداد مهم هستند ---
+
+      // نام‌هایی که در خروجی ستون "تعداد - ..." برایشان می‌سازیم
+      var COUNT_SHEET_DISPLAY_ORDER = [
+        'فروش',
+        'فروش اعتباری',
+        'فروش کالای آسیب دیده',
+        'برگشت از فروش',
+        'برگشت از فروش اعتباری'
+      ];
+
+      // نگاشت نام‌های واقعی شیت به نام استاندارد + نوع (فروش/برگشت)
+      // اگر در فایل‌ات مثلا "فروش کالای اسیب دیده" نوشتی، اینجا هم اضافه شده
+      var COUNT_SHEET_CONFIG = {
+        'فروش':                    { display: 'فروش', role: 'sale' },
+        'فروش اعتباری':            { display: 'فروش اعتباری', role: 'sale' },
+        'فروش کالای آسیب دیده':    { display: 'فروش کالای آسیب دیده', role: 'sale' },
+        'فروش کالای اسیب دیده':    { display: 'فروش کالای آسیب دیده', role: 'sale' },
+        'برگشت از فروش':          { display: 'برگشت از فروش', role: 'return' },
+        'برگشت از فروش اعتباری':  { display: 'برگشت از فروش اعتباری', role: 'return' }
+      };
+
+      // ---- انتخاب فایل ----
       fileInput.addEventListener('change', function (e) {
         var file = e.target.files[0];
-        console.log('File selected:', file);
         if (!file) {
           selectedFile = null;
           processBtn.disabled = true;
@@ -115,10 +155,8 @@
         statusEl.textContent = 'فایل انتخاب شد: ' + file.name;
       });
 
-      // کلیک روی دکمه پردازش
+      // ---- پردازش ----
       processBtn.addEventListener('click', function () {
-        console.log('Process button clicked');
-
         if (!selectedFile) {
           statusEl.textContent = 'ابتدا فایل اکسل را انتخاب کنید.';
           return;
@@ -138,81 +176,56 @@
             var data = new Uint8Array(e.target.result);
             var workbook = XLSX.read(data, { type: 'array' });
 
-            if (workbook.SheetNames.length === 0) {
-              throw new Error('شیت معتبری در فایل پیدا نشد.');
+            if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+              throw new Error('هیچ شیتی در فایل پیدا نشد.');
             }
 
-            var sheetName = workbook.SheetNames[0];
-            var sheet = workbook.Sheets[sheetName];
+            var summaryMap = {}; // key: variantCode
 
-            var rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-            if (rows.length === 0) {
-              throw new Error('شیت خالی است.');
-            }
-			// پیدا کردن ستون‌ها بر اساس عنوان
-            var headers = Object.keys(rows[0]);
-
-            var variantCol = headers.find(function (h) {
-              return h.toString().indexOf('کد تنوع') !== -1;
-            });
-            var titleCol = headers.find(function (h) {
-              return h.toString().indexOf('عنوان تنوع') !== -1;
-            });
-            var creditAmountCol = headers.find(function (h) {
-              return h.toString().indexOf('مبلغ نهایی بستانکار') !== -1;
+            // همه شیت‌ها را پردازش کن
+            workbook.SheetNames.forEach(function (sheetName) {
+              processSheet(workbook, sheetName, summaryMap, COUNT_SHEET_CONFIG);
             });
 
-            if (!variantCol || !creditAmountCol) {
-              throw new Error('ستون‌های «کد تنوع» یا «مبلغ نهایی بستانکار (﷼)» پیدا نشد.');
-            }
+            // ساخت آرایه خروجی
+            var summaryArray = Object.keys(summaryMap).map(function (code) {
+              var item      = summaryMap[code];
+              var creditSum = item.creditSum || 0;
+              var debitSum  = item.debitSum  || 0;
+              var revenue   = creditSum - debitSum;
+              var netCount  = (item.totalSalesCount || 0) - (item.totalReturnCount || 0);
 
-            // گروه‌بندی بر اساس کد تنوع
-            var summaryMap = {};
-
-            rows.forEach(function (row) {
-              var code = (row[variantCol] || '').toString().trim();
-              if (!code) return;
-
-              var amountRaw = row[creditAmountCol];
-              var amount = parseMoney(amountRaw);
-
-              if (!summaryMap[code]) {
-                summaryMap[code] = {
-                  variantCode: code,
-                  title: titleCol ? (row[titleCol] || '').toString().trim() : '',
-                  count: 0,
-                  sum: 0
-                };
-              }
-
-              summaryMap[code].count += 1;
-              summaryMap[code].sum   += amount;
-            });
-
-            // تبدیل به آرایه برای اکسل
-            var summaryArray = Object.keys(summaryMap).map(function (key) {
-              var item = summaryMap[key];
-              var avg = item.count ? Math.round(item.sum / item.count) : 0;
-              return {
+              var row = {
                 'کد تنوع': item.variantCode,
-                'عنوان تنوع (نمونه)': item.title,
-                'تعداد ردیف': item.count,
-                'جمع مبلغ نهایی بستانکار (ریال)': item.sum,
-                'میانگین مبلغ نهایی بستانکار (ریال)': avg
+                'عنوان تنوع (نمونه)': item.title || ''
               };
+
+              // تعداد برای هر شیت مهم (اگر نبود، صفر)
+              COUNT_SHEET_DISPLAY_ORDER.forEach(function (dispName) {
+                var c = 0;
+                if (item.countsBySheet && item.countsBySheet[dispName]) {
+                  c = item.countsBySheet[dispName];
+                }
+                row['تعداد - ' + dispName] = c;
+              });
+
+              row['تعداد خالص فروش']   = netCount;
+              row['جمع بستانکار (ریال)'] = creditSum;
+              row['جمع بدهکار (ریال)']   = debitSum;
+              row['درآمد (ریال)']        = revenue;
+
+              return row;
             });
 
             if (summaryArray.length === 0) {
               throw new Error('هیچ ردیفی با کد تنوع معتبر پیدا نشد.');
             }
 
-            // ساخت و دانلود اکسل خروجی
             var outWb    = XLSX.utils.book_new();
             var outSheet = XLSX.utils.json_to_sheet(summaryArray);
             XLSX.utils.book_append_sheet(outWb, outSheet, 'خلاصه بر اساس کد تنوع');
 
-            var outFileName = 'summary_by_variant.xlsx';
+            var outFileName = 'summary_by_variant_multi_sheets.xlsx';
             XLSX.writeFile(outWb, outFileName);
 
             statusEl.innerHTML =
@@ -239,7 +252,111 @@
         reader.readAsArrayBuffer(selectedFile);
       });
 
-      // تبدیل رشته/عدد (با ارقام فارسی یا جداکننده هزار) به عدد
+      // ---- پردازش یک شیت و به‌روزرسانی summaryMap ----
+      function processSheet(workbook, sheetName, summaryMap, countSheetConfig) {
+        var trimmedName = sheetName.trim();
+        var cfg = countSheetConfig[trimmedName] || null;
+        var isCountSheet = !!cfg;                // آیا برای تعداد مهم است؟
+        var displayName  = cfg ? cfg.display : null;
+        var role         = cfg ? cfg.role    : null;  // 'sale' یا 'return'
+
+        console.log('Processing sheet:', sheetName,
+                    '| counted for quantity:', isCountSheet, '| role:', role);
+
+        var sheet = workbook.Sheets[sheetName];
+        if (!sheet) {
+          console.warn('Sheet not found:', sheetName);
+          return;
+        }
+
+        var rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        if (rows.length === 0) {
+          console.warn('Sheet empty:', sheetName);
+          return;
+        }
+
+        var headers = Object.keys(rows[0]);
+
+        var variantCol = headers.find(function (h) {
+          return h.toString().indexOf('کد تنوع') !== -1;
+        });
+        var titleCol = headers.find(function (h) {
+          return h.toString().indexOf('عنوان تنوع') !== -1;
+        });
+
+        // بستانکار
+        var creditCol = headers.find(function (h) {
+          return h.toString().indexOf('مبلغ نهایی بستانکار') !== -1;
+        }) || headers.find(function (h) {
+          return h.toString().indexOf('بستانکار') !== -1;
+        });
+
+        // بدهکار
+        var debitCol = headers.find(function (h) {
+          return h.toString().indexOf('مبلغ نهایی بدهکار') !== -1;
+        }) || headers.find(function (h) {
+          return h.toString().indexOf('بدهکار') !== -1;
+        });
+
+        if (!variantCol) {
+          console.warn('در شیت «' + sheetName +
+            '» ستون «کد تنوع» پیدا نشد، این شیت نادیده گرفته شد.');
+          return;
+        }
+        if (!creditCol && !debitCol) {
+          console.warn('در شیت «' + sheetName +
+            '» ستون‌های بستانکار/بدهکار پیدا نشد، این شیت برای مبالغ نادیده گرفته شد.');
+          return;
+        }
+
+        rows.forEach(function (row) {
+          var code = (row[variantCol] || '').toString().trim();
+          if (!code) return;
+
+          if (!summaryMap[code]) {
+            summaryMap[code] = {
+              variantCode: code,
+              title: titleCol ? (row[titleCol] || '').toString().trim() : '',
+              countsBySheet: {},
+              totalSalesCount: 0,
+              totalReturnCount: 0,
+              creditSum: 0,
+              debitSum: 0
+            };
+          }
+
+          var item = summaryMap[code];
+
+          // اگر عنوان هنوز خالی است و این شیت عنوان دارد، پرش کن
+          if ((!item.title || item.title === '') && titleCol && row[titleCol]) {
+            item.title = row[titleCol].toString().trim();
+          }
+
+          // تعداد برای شیت‌های خاص
+          if (isCountSheet) {
+            if (!item.countsBySheet[displayName]) {
+              item.countsBySheet[displayName] = 0;
+            }
+            item.countsBySheet[displayName] += 1;
+
+            if (role === 'sale') {
+              item.totalSalesCount += 1;
+            } else if (role === 'return') {
+              item.totalReturnCount += 1;
+            }
+          }
+
+          // جمع مبالغ (برای همه شیت‌هایی که ستون دارند)
+          if (creditCol) {
+            item.creditSum += parseMoney(row[creditCol]);
+          }
+          if (debitCol) {
+            item.debitSum += parseMoney(row[debitCol]);
+          }
+        });
+      }
+
+      // --- تبدیل مبلغ (با ارقام فارسی/انگلیسی و جداکننده‌ها) به عدد ---
       function parseMoney(value) {
         if (typeof value === 'number') return value;
         if (value === null || value === undefined) return 0;
