@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>خلاصه‌سازی اکسل بر اساس کد تنوع</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.6;
+      direction: rtl;
+      text-align: right;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 1rem;
+    }
+    .box {
+      border: 1px solid #ddd;
+      padding: 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      background: #fafafa;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+    input[type="file"] {
+      margin-bottom: 1rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      border: 1px solid #0d6efd;
+      background: #0d6efd;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      color: #333;
+      white-space: pre-line;
+    }
+    .error {
+      color: #b00020;
+    }
+    .ok {
+      color: #08660b;
+    }
+  </style>
+</head>
+<body>
+  <h1>خلاصه‌سازی اکسل بر اساس کد تنوع</h1>
+
+  <div class="box">
+    <p>
+      این ابزار یک فایل اکسل ورودی می‌گیرد، سطرها را بر اساس ستون
+      <strong>کد تنوع</strong> گروه‌بندی می‌کند و برای هر کد:
+    </p>
+    <ul>
+      <li>تعداد ردیف‌ها</li>
+      <li>جمع مبلغ نهایی بستانکار (ریال)</li>
+      <li>میانگین مبلغ نهایی بستانکار (ریال)</li>
+    </ul>
+    را محاسبه کرده و اکسل خروجی می‌سازد.
+  </div>
+
+  <div class="box">
+    <label for="file-input">فایل اکسل را انتخاب کنید (xlsx/xls):</label>
+    <input type="file" id="file-input" accept=".xlsx,.xls">
+    <br>
+    <button id="process-btn" disabled>پردازش و دانلود خروجی</button>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- کتابخانه SheetJS برای کار با اکسل -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- کد اپلیکیشن -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      console.log('App ready');
+
+      var fileInput  = document.getElementById('file-input');
+      var processBtn = document.getElementById('process-btn');
+      var statusEl   = document.getElementById('status');
+
+      var selectedFile = null;
+
+      // انتخاب فایل
+      fileInput.addEventListener('change', function (e) {
+        var file = e.target.files[0];
+        console.log('File selected:', file);
+        if (!file) {
+          selectedFile = null;
+          processBtn.disabled = true;
+          statusEl.textContent = 'فایلی انتخاب نشد.';
+          return;
+        }
+        selectedFile = file;
+        processBtn.disabled = false;
+        statusEl.textContent = 'فایل انتخاب شد: ' + file.name;
+      });
+
+      // کلیک روی دکمه پردازش
+      processBtn.addEventListener('click', function () {
+        console.log('Process button clicked');
+
+        if (!selectedFile) {
+          statusEl.textContent = 'ابتدا فایل اکسل را انتخاب کنید.';
+          return;
+        }
+
+        processBtn.disabled = true;
+        statusEl.textContent = 'در حال خواندن و پردازش فایل...';
+
+        var reader = new FileReader();
+
+        reader.onload = function (e) {
+          try {
+            if (typeof XLSX === 'undefined') {
+              throw new Error('کتابخانه XLSX لود نشده است.');
+            }
+
+            var data = new Uint8Array(e.target.result);
+            var workbook = XLSX.read(data, { type: 'array' });
+
+            if (workbook.SheetNames.length === 0) {
+              throw new Error('شیت معتبری در فایل پیدا نشد.');
+            }
+
+            var sheetName = workbook.SheetNames[0];
+            var sheet = workbook.Sheets[sheetName];
+
+            var rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+            if (rows.length === 0) {
+              throw new Error('شیت خالی است.');
+            }
+			// پیدا کردن ستون‌ها بر اساس عنوان
+            var headers = Object.keys(rows[0]);
+
+            var variantCol = headers.find(function (h) {
+              return h.toString().indexOf('کد تنوع') !== -1;
+            });
+            var titleCol = headers.find(function (h) {
+              return h.toString().indexOf('عنوان تنوع') !== -1;
+            });
+            var creditAmountCol = headers.find(function (h) {
+              return h.toString().indexOf('مبلغ نهایی بستانکار') !== -1;
+            });
+
+            if (!variantCol || !creditAmountCol) {
+              throw new Error('ستون‌های «کد تنوع» یا «مبلغ نهایی بستانکار (﷼)» پیدا نشد.');
+            }
+
+            // گروه‌بندی بر اساس کد تنوع
+            var summaryMap = {};
+
+            rows.forEach(function (row) {
+              var code = (row[variantCol] || '').toString().trim();
+              if (!code) return;
+
+              var amountRaw = row[creditAmountCol];
+              var amount = parseMoney(amountRaw);
+
+              if (!summaryMap[code]) {
+                summaryMap[code] = {
+                  variantCode: code,
+                  title: titleCol ? (row[titleCol] || '').toString().trim() : '',
+                  count: 0,
+                  sum: 0
+                };
+              }
+
+              summaryMap[code].count += 1;
+              summaryMap[code].sum   += amount;
+            });
+
+            // تبدیل به آرایه برای اکسل
+            var summaryArray = Object.keys(summaryMap).map(function (key) {
+              var item = summaryMap[key];
+              var avg = item.count ? Math.round(item.sum / item.count) : 0;
+              return {
+                'کد تنوع': item.variantCode,
+                'عنوان تنوع (نمونه)': item.title,
+                'تعداد ردیف': item.count,
+                'جمع مبلغ نهایی بستانکار (ریال)': item.sum,
+                'میانگین مبلغ نهایی بستانکار (ریال)': avg
+              };
+            });
+
+            if (summaryArray.length === 0) {
+              throw new Error('هیچ ردیفی با کد تنوع معتبر پیدا نشد.');
+            }
+
+            // ساخت و دانلود اکسل خروجی
+            var outWb    = XLSX.utils.book_new();
+            var outSheet = XLSX.utils.json_to_sheet(summaryArray);
+            XLSX.utils.book_append_sheet(outWb, outSheet, 'خلاصه بر اساس کد تنوع');
+
+            var outFileName = 'summary_by_variant.xlsx';
+            XLSX.writeFile(outWb, outFileName);
+
+            statusEl.innerHTML =
+              '<span class="ok">پردازش انجام شد. فایل خروجی با نام <b>' +
+              outFileName +
+              '</b> دانلود شد.</span>';
+          } catch (err) {
+            console.error(err);
+            statusEl.innerHTML =
+              '<span class="error">خطا در پردازش فایل: ' +
+              err.message +
+              '</span>';
+          } finally {
+            processBtn.disabled = false;
+          }
+        };
+
+        reader.onerror = function () {
+          statusEl.innerHTML =
+            '<span class="error">خطا در خواندن فایل.</span>';
+          processBtn.disabled = false;
+        };
+
+        reader.readAsArrayBuffer(selectedFile);
+      });
+
+      // تبدیل رشته/عدد (با ارقام فارسی یا جداکننده هزار) به عدد
+      function parseMoney(value) {
+        if (typeof value === 'number') return value;
+        if (value === null || value === undefined) return 0;
+
+        var str = String(value);
+        var persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+        var digitsOnly = '';
+
+        for (var i = 0; i < str.length; i++) {
+          var ch = str[i];
+          var idx = persianDigits.indexOf(ch);
+          if (idx !== -1) {
+            digitsOnly += idx.toString();
+          } else if (ch >= '0' && ch <= '9') {
+            digitsOnly += ch;
+          }
+        }
+
+        if (!digitsOnly) return 0;
+        return parseInt(digitsOnly, 10);
+      }
+    });
+  </script>
+</body>
+</html>
